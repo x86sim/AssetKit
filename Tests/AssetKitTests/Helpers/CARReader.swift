@@ -86,6 +86,16 @@ struct CARReader {
         }
     }
 
+    /// Pixel width and height from the CSI header of every rendition of the named asset.
+    func csiSizes(named asset: String) throws -> [(width: UInt32, height: UInt32)] {
+        let format = try keyFormat
+        guard let identifier = try facets[asset]?[17],
+              let at = format.firstIndex(of: 17) else { return [] }
+        return try tree("RENDITIONS")
+            .filter { key, _ in le16(key, 2 * at) == identifier }
+            .map { _, csi in (le32(csi, 12), le32(csi, 16)) }
+    }
+
     /// Facet name -> BITMAPKEYS descriptor words.
     var bitmapKeys: [String: [UInt32]] {
         get throws {

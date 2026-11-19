@@ -45,20 +45,24 @@ enum BrandAssetsCompiler {
             }
             .sorted { $0.area < $1.area }
             .map(\.asset)
-        let primaryName = stacks.first.map { stem($0.filename) }
+        // The name every stack is keyed under (CFBundlePrimaryIcon): the smallest stack
+        // that has layers. Set once a stack is written, so the plist never names an
+        // icon the car lacks.
+        var primaryName: String?
 
         var renditions: [Rendition] = []
-        for (index, asset) in stacks.enumerated() {
+        for asset in stacks {
             let stackName = stem(asset.filename)
             let directory = brand.directory.appendingPathComponent(asset.filename)
             let contents = try loader.decode(ImageStackContents.self, at: directory, decoder: decoder)
             // The smallest stack is the home-screen icon; any larger one is
             // the App Store icon (idiom marketing), even though Xcode writes
             // "tv" for both.
-            let idiom: Idiom = index == 0 ? .tv : .marketing
+            let idiom: Idiom = primaryName == nil ? .tv : .marketing
 
             // Layers front to back as in Contents.json.
             var layers: [(identifier: UInt16, bitmaps: [Int: DecodedLayer])] = []
+            var undecodable = false
             for layer in contents.layers {
                 let setDirectory = directory.appendingPathComponent(layer.filename)
                     .appendingPathComponent("Content.imageset")
@@ -78,32 +82,46 @@ enum BrandAssetsCompiler {
                 var bitmaps: [Int: DecodedLayer] = [:]
                 for image in setContents.images {
                     guard let filename = image.filename else { continue }
-                    guard SourceFormat.detect(filename: filename) == .png else {
-                        throw XCAssetCompilerError.unsupportedAssetType(
-                            "\(name)/\(filename): image stack layers must be PNG to be flattened")
+                    // Only PNG layers can be decoded here (AssetKit embeds JPEG and HEIC
+                    // without decoding them). The layer renditions above are written either
+                    // way; a stack with an undecodable layer gets no flattened or radiosity
+                    // image instead of failing the whole catalog.
+                    guard SourceFormat.detect(filename: filename) == .png,
+                          let decoded = try? PNGSource.decodeBGRA(
+                            Data(contentsOf: setDirectory.appendingPathComponent(filename)))
+                    else {
+                        undecodable = true
+                        continue
                     }
-                    let decoded = try PNGSource.decodeBGRA(
-                        Data(contentsOf: setDirectory.appendingPathComponent(filename)))
                     let factor = image.scale?.factor ?? 1
                     bitmaps[factor] = DecodedLayer(width: Int(decoded.width), height: Int(decoded.height), pixels: decoded.bgra8)
                 }
                 layers.append((UInt16(FacetKeys.nameHash(name) & 0xFFFF), bitmaps))
             }
-            guard !layers.isEmpty, let primaryName else { continue }
+            guard !layers.isEmpty else { continue }
+            if primaryName == nil { primaryName = stackName }
+            guard let primaryName else { continue }
 
             // Layer frames in points: each layer's lowest-scale image over
             // its scale. The stack is as large as its largest layer (Apple
             // probe: a 1280x768 stack of 400x240 layers is keyed 400x240),
             // and every layer is centered in it.
             let pointSizes = layers.map { layer -> (Int, Int) in
-                let factor = layer.bitmaps.keys.min()!
-                let bitmap = layer.bitmaps[factor]!
-                return (bitmap.width / factor, bitmap.height / factor)
+                // A layer without a decodable image has no pixel size; its frame is the
+                // stack's (0x0 here, then centered at the stack size).
+                guard let factor = layer.bitmaps.keys.min(), let bitmap = layer.bitmaps[factor] else {
+                    return (0, 0)
+                }
+                // Rounded up: a 401x241 @2x layer needs 201x121 points, not 200x120.
+                return ((bitmap.width + factor - 1) / factor, (bitmap.height + factor - 1) / factor)
             }
-            let stackWidth = pointSizes.map(\.0).max()!
-            let stackHeight = pointSizes.map(\.1).max()!
-            let frames = pointSizes.map { size in
-                (x: (stackWidth - size.0) / 2, y: (stackHeight - size.1) / 2, w: size.0, h: size.1)
+            // No decodable layer at all (JPEG/HEIC only): the size the catalog declares.
+            let declared = parseSize(asset.size) ?? (0, 0)
+            let stackWidth = max(pointSizes.map(\.0).max()!, pointSizes.allSatisfy { $0.0 == 0 } ? declared.0 : 0)
+            let stackHeight = max(pointSizes.map(\.1).max()!, pointSizes.allSatisfy { $0.1 == 0 } ? declared.1 : 0)
+            let frames = pointSizes.map { size -> (x: Int, y: Int, w: Int, h: Int) in
+                let size = size.0 == 0 ? (stackWidth, stackHeight) : size
+                return (x: (stackWidth - size.0) / 2, y: (stackHeight - size.1) / 2, w: size.0, h: size.1)
             }
 
             // Back to front: index 0 is the last layer of the json list.
@@ -119,7 +137,8 @@ enum BrandAssetsCompiler {
                 body: .imageStack(ImageStackBody(
                     width: UInt32(stackWidth), height: UInt32(stackHeight), layers: stackLayers))))
 
-            let factors = Set(layers.flatMap { $0.bitmaps.keys }).sorted()
+            // The flattened and radiosity images need every layer's pixels.
+            let factors = undecodable ? [] : Set(layers.flatMap { $0.bitmaps.keys }).sorted()
             for factor in factors {
                 guard let scale = [Scale.x1, .x2, .x3].first(where: { $0.factor == factor }) else { continue }
                 let canvasWidth = stackWidth * factor

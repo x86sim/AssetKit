@@ -141,6 +141,88 @@ struct ImageStackTests {
         #expect(keys.contains { $0.hasPrefix("App Icon|") && $0.contains("209") })
     }
 
+    /// A brandassets "Icon" with one stack "App Icon": the front layer from `front`
+    /// (filename, bytes; nil leaves its imageset without images), a 400x240 PNG back layer.
+    private func stackCatalog(front: (String, Data)?) throws -> URL {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("brand-\(UUID().uuidString).xcassets")
+        let info = #""info":{"author":"xcode","version":1}"#
+        try write("{\(info)}", to: root)
+        let brand = root.appendingPathComponent("Icon.brandassets")
+        try write("""
+        {"assets":[{"filename":"App Icon.imagestack","idiom":"tv","role":"primary-app-icon","size":"400x240"}],\(info)}
+        """, to: brand)
+        let stack = brand.appendingPathComponent("App Icon.imagestack")
+        try write(#"{"layers":[{"filename":"Front.imagestacklayer"},{"filename":"Back.imagestacklayer"}],\#(info)}"#, to: stack)
+        let layers: [(String, (String, Data)?)] = [("Front", front), ("Back", ("b.png", try png(width: 400, height: 240, rgba: (0, 0, 255, 255))))]
+        for (layer, file) in layers {
+            let set = stack.appendingPathComponent("\(layer).imagestacklayer/Content.imageset")
+            try write("{\(info)}", to: set.deletingLastPathComponent())
+            if let (name, data) = file {
+                try write(#"{"images":[{"filename":"\#(name)","idiom":"tv"}],\#(info)}"#, to: set)
+                try data.write(to: set.appendingPathComponent(name))
+            } else {
+                try write(#"{"images":[{"idiom":"tv"}],\#(info)}"#, to: set)
+            }
+        }
+        return root
+    }
+
+    /// A minimal baseline JPEG header (SOI, SOF0 200x120, EOI): enough for AssetKit to
+    /// read its size and embed it, not decodable to pixels.
+    private var jpegStub: Data {
+        Data([0xFF, 0xD8, 0xFF, 0xC0, 0x00, 0x11, 0x08, 0x00, 0x78, 0x00, 0xC8, 0x03,
+              0x01, 0x22, 0x00, 0x02, 0x11, 0x01, 0x03, 0x11, 0x01, 0xFF, 0xD9])
+    }
+
+    @Test("A JPEG layer keeps the stack and layers but skips flattening, without failing the catalog")
+    func jpegLayer() async throws {
+        let root = try stackCatalog(front: ("f.jpg", jpegStub))
+        defer { try? FileManager.default.removeItem(at: root) }
+        let result = try await XCAssetCompiler(deploymentTarget: "18.0", platform: "appletvos")
+            .compile(catalog: root, appIconName: "Icon")
+        let plist = try #require(result.appIconBundle)
+        #expect((plist.infoPlistAdditions["CFBundleIcons"] as? [String: any Sendable])?["CFBundlePrimaryIcon"] as? String
+            == "App Icon")
+        let keys = try CARReader(result.carData).renditionKeys
+        #expect(keys.contains { $0.hasPrefix("App Icon|") })
+        #expect(!keys.contains { $0.hasPrefix("App Icon|") && ($0.contains("208") || $0.contains("209")) })
+    }
+
+    @Test("A stack whose layers have no images names no icon")
+    func emptyStack() async throws {
+        let root = try stackCatalog(front: nil)
+        defer { try? FileManager.default.removeItem(at: root) }
+        // Remove the back layer's image too: no layer has an image.
+        let back = root.appendingPathComponent("Icon.brandassets/App Icon.imagestack/Back.imagestacklayer/Content.imageset")
+        try write(#"{"images":[{"idiom":"tv"}],"info":{"author":"xcode","version":1}}"#, to: back)
+        let result = try await XCAssetCompiler(deploymentTarget: "18.0", platform: "appletvos")
+            .compile(catalog: root, appIconName: "Icon")
+        #expect((result.appIconBundle?.infoPlistAdditions["CFBundleIcons"]) == nil)
+    }
+
+    @Test("Brand assets compile only for tvOS")
+    func notForIOS() async throws {
+        let root = try stackCatalog(front: ("f.png", try png(width: 200, height: 120, rgba: (255, 0, 0, 128))))
+        defer { try? FileManager.default.removeItem(at: root) }
+        let result = try await XCAssetCompiler(deploymentTarget: "18.0", platform: "iphoneos")
+            .compile(catalog: root, appIconName: nil)
+        #expect((result.appIconBundle?.infoPlistAdditions["CFBundleIcons"]) == nil)
+    }
+
+    @Test("Odd pixel sizes at 2x round the stack up instead of cropping")
+    func oddSizeAt2x() async throws {
+        let root = try stackCatalog(front: nil)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let back = root.appendingPathComponent("Icon.brandassets/App Icon.imagestack/Back.imagestacklayer/Content.imageset")
+        try write(#"{"images":[{"filename":"b.png","idiom":"tv","scale":"2x"}],"info":{"author":"xcode","version":1}}"#, to: back)
+        try png(width: 401, height: 241, rgba: (0, 0, 255, 255)).write(to: back.appendingPathComponent("b.png"))
+        let result = try await XCAssetCompiler(deploymentTarget: "18.0", platform: "appletvos")
+            .compile(catalog: root, appIconName: "Icon")
+        let car = try CARReader(result.carData)
+        #expect(try car.renditionKeys.contains { $0.hasPrefix("App Icon|") && $0.contains("208") })
+        #expect(try car.csiSizes(named: "App Icon").contains { $0.width == 402 && $0.height == 242 })
+    }
+
     @Test("Radiosity blur keeps a uniform image uniform and spreads a point")
     func boxBlur() {
         var flat = [UInt8](repeating: 200, count: 6 * 4 * 4)

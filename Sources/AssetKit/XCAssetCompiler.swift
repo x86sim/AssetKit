@@ -227,7 +227,9 @@ public struct XCAssetCompiler: Sendable {
 
         // tvOS .brandassets: layered app icon stacks plus Top Shelf images.
         // Only the set named by --app-icon (or the catalog's only one).
-        if appIconBundle == nil, let brand = loaded.brandAssets(named: appIconName) {
+        // tvOS only, as Apple's actool: for other platforms brand assets compile to nothing.
+        if appIconBundle == nil, platform == "appletvos" || platform == "appletvsimulator",
+           let brand = loaded.brandAssets(named: appIconName) {
             let compiled = try BrandAssetsCompiler.compile(
                 brand, svgRasterizer: svgRasterizer, pdfRasterizer: pdfRasterizer, heicDecoder: heicDecoder)
             renditions.append(contentsOf: compiled.renditions)
