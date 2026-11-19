@@ -51,6 +51,12 @@ enum CSIHeader {
         /// Preserved-source JPG renditions reuse this same layout value (the
         /// pixelFormat selects the decoder, not the layout).
         case bitmapIcon = 12
+        /// tvOS image-stack derivatives (flattened and radiosity images):
+        /// plain ARGB bitmaps at layout 0 (actool 27.2 SmartTube oracle).
+        case stackDerivedImage = 0
+        /// tvOS layered app icon ("ImageStack" in assetutil): a 12-byte DWAR
+        /// body with the layer list in TVL 1012 (actool 27.2 SmartTube oracle).
+        case imageStack = 1002
         case namedColor = 1009
         /// MultiSized icon container. The body is a 'MSIS' record (version,
         /// count, then per-size width/height/index); actool emits one such

@@ -103,6 +103,27 @@ struct IconImageStackBody: Sendable {
 
 }
 
+/// One layer of a tvOS image stack: its frame in points (centered in the
+/// stack) and the NameIdentifier of its `<stack>/<layer>/Content` image.
+struct ImageStackLayer: Sendable {
+    var x: UInt32
+    var y: UInt32
+    var width: UInt32
+    var height: UInt32
+    var identifier: UInt16
+}
+
+/// A tvOS `.imagestack` ("ImageStack", CSI layout 1002): the layered app
+/// icon of a `.brandassets`. Layers are stored back to front (index 0 = the
+/// LAST entry of the imagestack's `layers` array). actool 27.2 SmartTube
+/// oracle and the two/five-layer probes.
+struct ImageStackBody: Sendable {
+    /// Stack size in points.
+    var width: UInt32
+    var height: UInt32
+    var layers: [ImageStackLayer]
+}
+
 // MARK: - CSI writers
 
 extension CSIWriter {
@@ -259,6 +280,60 @@ extension CSIWriter {
         let tvl = CSITVL.encode(entries)
         let header = structuredHeader(layout: .iconGroup, name: body.csiName, width: 0, height: 0, tvlLength: UInt32(tvl.count))
         var data = header
+        data.append(tvl)
+        data.append(DWAREnvelope.encode(flags: 0, payload: []) as Data)
+        return data
+    }
+
+    /// tvOS image stack (layout 1002). TVLs, in Apple's order:
+    /// - 1012: count, u32 0, then per layer u32 0, x, y, w, h, blend 0,
+    ///   opacity 1.0, 0x10 and the 16-byte image reference.
+    /// - 1020: count, per layer 12 zero bytes + 0x01, u32 0.
+    /// - 1021: count, 20 zero bytes per layer, u32 0.
+    /// - 1022: count, 12 zero bytes per layer, u32 0.
+    /// - 1004 (0.0, 1.0), 1005 "public.layeredimage", 1006 1.
+    /// The CSI name is the literal "Contents.json".
+    static func imageStack(body: ImageStackBody) -> Data {
+        let count = UInt32(body.layers.count)
+        var layers = ByteWriter()
+        layers.writeLE(count)
+        layers.writeLE(UInt32(0))
+        for layer in body.layers {
+            layers.writeLE(UInt32(0))
+            layers.writeLE(layer.x)
+            layers.writeLE(layer.y)
+            layers.writeLE(layer.width)
+            layers.writeLE(layer.height)
+            layers.writeLE(UInt32(0))
+            layers.writeLE(Float(1.0).bitPattern)
+            layers.writeLE(UInt32(0x10))
+            layers.write(LayeredRenditions.referencePairs(part: 181, identifier: layer.identifier))
+        }
+
+        var materials = ByteWriter()
+        materials.writeLE(count)
+        for _ in body.layers {
+            materials.writeZeros(12)
+            materials.write(byte: 0x01)
+        }
+        materials.writeLE(UInt32(0))
+
+        func zeroSlots(_ size: Int) -> [UInt8] {
+            w32(count) + [UInt8](repeating: 0, count: size * body.layers.count + 4)
+        }
+        let entries: [TVLEntry] = [
+            .rawBytes(tag: 0x3f4, payload: Array(layers.data)),
+            .rawBytes(tag: 0x3fc, payload: Array(materials.data)),
+            .rawBytes(tag: 0x3fd, payload: zeroSlots(20)),
+            .rawBytes(tag: 0x3fe, payload: zeroSlots(12)),
+            .rawBytes(tag: 0x3ec, payload: slicePair),
+            .rawBytes(tag: 0x3ed, payload: lengthString("public.layeredimage")),
+            .rawBytes(tag: 0x3ee, payload: one),
+        ]
+        let tvl = CSITVL.encode(entries)
+        var data = structuredHeader(
+            layout: .imageStack, name: "Contents.json",
+            width: body.width, height: body.height, tvlLength: UInt32(tvl.count))
         data.append(tvl)
         data.append(DWAREnvelope.encode(flags: 0, payload: []) as Data)
         return data

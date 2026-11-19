@@ -17,6 +17,8 @@ struct Rendition: Sendable {
         case namedGradient(NamedGradientBody)
         case iconGroup(IconGroupBody)
         case iconImageStack(IconImageStackBody)
+        /// tvOS `.imagestack` (brandassets app icon), CSI layout 1002.
+        case imageStack(ImageStackBody)
     }
 
     var name: String
@@ -134,6 +136,12 @@ struct BitmapBody: Sendable {
         /// `element=85, part=181`. Used by UIImage(named:) for generic image
         /// assets from an `.imageset`.
         case image
+        /// `element=85, part=208`: a tvOS image stack's layers composited
+        /// into one image (csi name "ZZZZFlattenedImage-<scale>.1.0-gamut0").
+        case flattenedImage
+        /// `element=85, part=209`: the blurred glow tvOS draws behind a
+        /// focused image stack (csi name "ZZZZRadiosityImage-<scale>.0.0").
+        case radiosityImage
     }
 
     var width: UInt32

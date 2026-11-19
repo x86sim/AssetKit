@@ -48,6 +48,10 @@ struct RenditionKey: Hashable, Sendable {
         case multiSized = 218
         /// Used by UIImage(named:) for generic `.imageset` assets.
         case image = 181
+        /// tvOS image-stack flattened image (actool 27.2 SmartTube oracle).
+        case flattenedImage = 208
+        /// tvOS image-stack radiosity image (actool 27.2 SmartTube oracle).
+        case radiosityImage = 209
         /// Slot for preserved-source vector renditions (SVG). Reference
         /// `actool` output places the SVG source rendition under this part
         /// rather than `image`; bitmap variants rasterised from the SVG
@@ -111,6 +115,12 @@ struct RenditionKey: Hashable, Sendable {
                 self.part = Part.image.rawValue
                 // Generic image assets don't use Dimension2 at all.
                 self.dimension2 = 0
+            case .flattenedImage:
+                self.part = Part.flattenedImage.rawValue
+                self.dimension2 = 0
+            case .radiosityImage:
+                self.part = Part.radiosityImage.rawValue
+                self.dimension2 = 0
             }
         case .multiSized:
             self.element = Element.bitmap.rawValue
@@ -125,6 +135,13 @@ struct RenditionKey: Hashable, Sendable {
         case .iconGroup:
             self.element = Element.bitmap.rawValue
             self.part = Part.iconGroup.rawValue
+            self.dimension2 = 0
+            self.scale = 1
+        case .imageStack:
+            // tvOS image stack: the generic-image part at scale 1 (actool
+            // 27.2 SmartTube oracle keys).
+            self.element = Element.bitmap.rawValue
+            self.part = Part.image.rawValue
             self.dimension2 = 0
             self.scale = 1
         case .iconImageStack:

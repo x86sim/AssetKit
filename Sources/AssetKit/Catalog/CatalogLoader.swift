@@ -9,6 +9,17 @@ struct LoadedCatalog: Sendable {
     /// alternate icons (actool's `--alternate-app-icon` / `--include-all-app-icons`)
     /// are all appiconsets; the caller selects by name.
     var appIcons: [LoadedAppIcon]
+    /// Every tvOS `.brandassets` (layered app icon + Top Shelf images).
+    var brandAssets: [LoadedBrandAssets] = []
+
+    /// The `.brandassets` named `appIconName`, or the catalog's only one
+    /// when no name is given.
+    func brandAssets(named appIconName: String?) -> LoadedBrandAssets? {
+        if let appIconName {
+            return brandAssets.first(where: { $0.name == appIconName })
+        }
+        return brandAssets.count == 1 ? brandAssets[0] : nil
+    }
 
     /// The primary `.appiconset`: the one named `appIconName`. When no name
     /// is given, the single appiconset of the catalog. A name with no
@@ -52,6 +63,12 @@ struct LoadedColorSet: Sendable {
     var contents: ColorSetContents
 }
 
+struct LoadedBrandAssets: Sendable {
+    var name: String
+    var directory: URL
+    var contents: BrandAssetsContents
+}
+
 struct LoadedAppIcon: Sendable {
     var name: String
     var directory: URL
@@ -74,6 +91,7 @@ struct CatalogLoader: Sendable {
         var colorSets: [LoadedColorSet] = []
         var symbolSets: [LoadedSymbolSet] = []
         var appIcons: [LoadedAppIcon] = []
+        var brandAssets: [LoadedBrandAssets] = []
 
         try walk(url, prefix: "", fileManager: fm) { entry, prefix in
             let ext = entry.pathExtension
@@ -94,6 +112,9 @@ struct CatalogLoader: Sendable {
             case "appiconset":
                 let contents = try decode(AppIconContents.self, at: entry, decoder: decoder)
                 appIcons.append(LoadedAppIcon(name: name, directory: entry, contents: contents))
+            case "brandassets":
+                let contents = try decode(BrandAssetsContents.self, at: entry, decoder: decoder)
+                brandAssets.append(LoadedBrandAssets(name: name, directory: entry, contents: contents))
             default:
                 if !ext.isEmpty {
                     throw XCAssetCompilerError.unsupportedAssetType("\(name).\(ext)")
@@ -106,11 +127,12 @@ struct CatalogLoader: Sendable {
             imageSets: imageSets,
             colorSets: colorSets,
             symbolSets: symbolSets,
-            appIcons: appIcons
+            appIcons: appIcons,
+            brandAssets: brandAssets
         )
     }
 
-    private func decode<T: Decodable>(_ type: T.Type, at directory: URL, decoder: JSONDecoder) throws -> T {
+    func decode<T: Decodable>(_ type: T.Type, at directory: URL, decoder: JSONDecoder) throws -> T {
         let contentsURL = directory.appendingPathComponent("Contents.json")
         guard FileManager.default.fileExists(atPath: contentsURL.path) else {
             throw XCAssetCompilerError.missingContentsJSON(path: directory.path)
@@ -140,7 +162,7 @@ struct CatalogLoader: Sendable {
             let values = try child.resourceValues(forKeys: [.isDirectoryKey])
             guard values.isDirectory == true else { continue }
             let ext = child.pathExtension
-            if ["imageset", "colorset", "appiconset", "symbolset"].contains(ext) {
+            if ["imageset", "colorset", "appiconset", "symbolset", "brandassets"].contains(ext) {
                 try visit(child, prefix)
             } else {
                 let namespaced = providesNamespace(child)

@@ -27,7 +27,16 @@ enum CSIWriter {
         case .gray16: colorSpace = 6
         case .argb16: colorSpace = 4
         }
-        let tvl = CSITVL.encode([
+        // Image-stack derivatives (flattened / radiosity) carry an empty
+        // slice rect and no 1003 destination rect (actool 27.2 SmartTube
+        // oracle: 1001 = 1 slice of 0x0, then 1004, 1006, 1007).
+        let stackDerived = body.kind == .flattenedImage || body.kind == .radiosityImage
+        let tvl = CSITVL.encode(stackDerived ? [
+            .bitmapDescriptor(width: 0, height: 0),
+            .sliceScale,
+            .bitmapFlag,
+            .bytesPerRow(width: body.width, bytesPerPixel: body.pixelFormat.bytesPerPixel),
+        ] : [
             .bitmapDescriptor(width: body.width, height: body.height),
             .destRect(width: body.width, height: body.height),
             .sliceScale,
@@ -76,7 +85,7 @@ enum CSIWriter {
             scaleFactor: scaleFactor,
             pixelFormat: pixelFormat,
             colorSpace: colorSpace,
-            layout: .bitmapIcon,
+            layout: stackDerived ? .stackDerivedImage : .bitmapIcon,
             name: body.renditionName,
             tvlLength: UInt32(tvl.count),
             bitmapCount: 1,

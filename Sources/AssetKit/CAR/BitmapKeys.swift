@@ -126,7 +126,7 @@ enum BitmapKeys {
         let hasDescribableRendition = renditions.contains { rendition in
             if rendition.iconComposerSource { return true }
             switch rendition.body {
-            case .bitmap, .preservedSource, .color, .symbolVector, .symbolCached: return true
+            case .bitmap, .preservedSource, .color, .symbolVector, .symbolCached, .imageStack: return true
             case .symbolPacked, .multiSized, .namedGradient, .iconGroup, .iconImageStack: return false
             }
         }

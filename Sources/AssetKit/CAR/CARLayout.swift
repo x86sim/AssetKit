@@ -57,7 +57,7 @@ struct CARLayout {
         case .bitmap(let body):
             switch body.kind {
             case .appIcon: return .appIcon
-            case .image: return .image
+            case .image, .flattenedImage, .radiosityImage: return .image
             }
         case .color: return .color
         case .symbolPacked: return .image
@@ -76,6 +76,9 @@ struct CARLayout {
         case .iconGroup: return .iconGroup
         case .namedGradient: return .namedGradient
         case .iconImageStack: return .appIcon
+        // A tvOS image stack is keyed as a generic image (oracle FACETKEYS
+        // (1,85),(2,181),(17,id)).
+        case .imageStack: return .image
         // Preserved-source renditions live in the `.image` category at every
         // layer above the CSI body: FACETKEYS, BITMAPKEYS, and the rendition
         // key all reuse the same element/part as a generic PNG imageset.

@@ -259,3 +259,25 @@ struct ColorSetContents: Codable, Sendable {
     var colors: [ColorEntry]
     var info: CatalogContents.Info
 }
+
+/// tvOS `.brandassets` Contents.json: the app icon image stacks and Top
+/// Shelf imagesets, each with a role.
+struct BrandAssetsContents: Codable, Sendable {
+    struct Asset: Codable, Sendable {
+        var filename: String
+        var idiom: Idiom?
+        /// "primary-app-icon", "top-shelf-image", "top-shelf-image-wide".
+        var role: String?
+        /// Points, "400x240".
+        var size: String?
+    }
+    var assets: [Asset]
+}
+
+/// `.imagestack` Contents.json: layers front to back.
+struct ImageStackContents: Codable, Sendable {
+    struct Layer: Codable, Sendable {
+        var filename: String
+    }
+    var layers: [Layer]
+}

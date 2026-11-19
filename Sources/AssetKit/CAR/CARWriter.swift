@@ -323,6 +323,8 @@ struct CARWriter: Sendable {
             return CSIWriter.iconGroup(name: rendition.name, body: body)
         case .iconImageStack(let body):
             return CSIWriter.iconImageStack(name: rendition.name, body: body)
+        case .imageStack(let body):
+            return CSIWriter.imageStack(body: body)
         case .preservedSource(let body):
             // SVG and PDF renditions are scale-free; the reference leaves
             // scaleFactor=0 for them. JPGs respect the @Nx suffix the same

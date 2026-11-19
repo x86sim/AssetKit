@@ -225,6 +225,20 @@ public struct XCAssetCompiler: Sendable {
             }
         }
 
+        // tvOS .brandassets: layered app icon stacks plus Top Shelf images.
+        // Only the set named by --app-icon (or the catalog's only one).
+        if appIconBundle == nil, let brand = loaded.brandAssets(named: appIconName) {
+            let compiled = try BrandAssetsCompiler.compile(
+                brand, svgRasterizer: svgRasterizer, pdfRasterizer: pdfRasterizer, heicDecoder: heicDecoder)
+            renditions.append(contentsOf: compiled.renditions)
+            // primaryIconName is the --app-icon (brandassets) name, which
+            // callers match; the plist carries the stack name.
+            appIconBundle = AppIconBundle(
+                primaryIconName: brand.name,
+                infoPlistAdditions: compiled.infoPlistAdditions,
+                looseFiles: [])
+        }
+
         // Without --app-icon, a catalog with one appiconset uses it as the
         // primary (CatalogLoader.appIcon(named:)); it is not also its own
         // alternate (that wrote its renditions twice, with identical keys).
